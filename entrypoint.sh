@@ -22,8 +22,8 @@ fi
 # --- Bootstrap Settings ---
 # If a host config directory is mounted, copy its contents (agents, settings, etc.)
 # into the container's home directory. This gives you a consistent setup every time.
-# We exclude the useless .credentials.json file.
 if [ -d "/tmp/host-claude-config" ]; then
+  # Exclude credentials.json, which contains login credentials, for security.
   rsync -a --exclude '.credentials.json' /tmp/host-claude-config/ /home/node/.claude/
 fi
 
