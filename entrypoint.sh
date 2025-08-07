@@ -15,8 +15,12 @@ usermod -u "${USER_ID}" -o node
 # Grant access to the host's Docker socket if it's mounted.
 if [ -S /var/run/docker.sock ]; then
   DOCKER_GID=$(stat -c '%g' /var/run/docker.sock)
-  getent group "${DOCKER_GID}" &>/dev/null || groupadd -g "${DOCKER_GID}" -o docker
-  usermod -aG docker node
+  DOCKER_GROUP_NAME=$(getent group "${DOCKER_GID}" | cut -d: -f1 || true)
+  if [ -z "${DOCKER_GROUP_NAME}" ]; then
+    DOCKER_GROUP_NAME=docker
+    groupadd -g "${DOCKER_GID}" -o "${DOCKER_GROUP_NAME}"
+  fi
+  usermod -aG "${DOCKER_GROUP_NAME}" node
 fi
 
 # --- Bootstrap Settings ---
