@@ -8,6 +8,15 @@ set -e
 IMAGE_NAME="claude-yolo-env"
 HOST_CLAUDE_CONFIG_DIR="$HOME/.claude"
 
+# Check if Docker image exists
+if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
+  echo "❌ Error: Docker image '$IMAGE_NAME' not found!"
+  echo "Please build the image first by running:"
+  echo "  docker build -t claude-yolo-env ."
+  echo "Run this command in the directory containing the Dockerfile."
+  exit 1
+fi
+
 # --- Argument Parsing ---
 # Default to the interactive browser login method.
 AUTH_METHOD="login"

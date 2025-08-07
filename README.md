@@ -54,13 +54,15 @@ chmod +x claude-yolo
 chmod +x entrypoint.sh
 ```
 
-**3. Build the Docker Image**
+**3. Build the Docker Image (REQUIRED!)**
 
-From within the same directory, build the `claude-yolo-env` image. You only need to do this once, or whenever you update the `Dockerfile` or `entrypoint.sh`.
+From within the same directory, build the `claude-yolo-env` image. **This step is mandatory - the container won't work without it!**
 
 ```bash
 docker build -t claude-yolo-env .
 ```
+
+If you see errors like "exec /usr/local/bin/entrypoint.sh: no such file or directory", it means the Docker image hasn't been built yet.
 
 **4. Install the Main Script**
 
