@@ -28,9 +28,11 @@ if [ -d "/tmp/host-claude-config" ]; then
 fi
 
 # --- Final Ownership Fix ---
-# Unconditionally ensure the user owns the entire .claude directory.
+# Ensure the user owns the .claude directory if it exists.
 # This prevents permission errors when the CLI tries to write new files (like 'todos').
-chown -R "${USER_ID}":"${GROUP_ID}" /home/node/.claude
+if [ -d "/home/node/.claude" ]; then
+  chown -R "${USER_ID}":"${GROUP_ID}" /home/node/.claude
+fi
 
 # Drop root privileges and execute the main command (e.g., /bin/bash) as the 'node' user.
 exec gosu node "$@"
