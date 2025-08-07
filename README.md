@@ -41,7 +41,7 @@ If you're using WSL (Windows Subsystem for Linux), the script files may have Win
 ```bash
 # Convert to Unix line endings
 dos2unix claude-yolo entrypoint.sh
-# Or if dos2unix isn't available:
+# Or if dos2unix isn't available, use sed:
 sed -i 's/\r$//' claude-yolo entrypoint.sh
 ```
 
