@@ -1,17 +1,21 @@
 #!/bin/bash
-# File: claude-yolo/claude-yolo
+# File: claude-yolo
+
+# --- Launches an Optimized Ephemeral Sandbox ---
+# Default behavior is browser-based login. Use --apikey for API key authentication.
 
 set -e
 IMAGE_NAME="claude-yolo-env"
-CREDENTIALS_VOLUME="claude-yolo-credentials"
 HOST_CLAUDE_CONFIG_DIR="$HOME/.claude"
 
-AUTH_METHOD="apikey"
+# --- Argument Parsing ---
+# Default to the interactive browser login method.
+AUTH_METHOD="login"
 NETWORK_NAME=""
 while (("$#")); do
   case "$1" in
-  --login)
-    AUTH_METHOD="login"
+  --apikey)
+    AUTH_METHOD="apikey"
     shift
     ;;
   *)
@@ -21,37 +25,38 @@ while (("$#")); do
   esac
 done
 
+# Use a bash array for cleaner Docker arguments.
 DOCKER_ARGS=("--rm" "-it")
 DOCKER_ARGS+=("-v" "$(pwd):/project")
 DOCKER_ARGS+=("-v" "/var/run/docker.sock:/var/run/docker.sock")
+DOCKER_ARGS+=("-e" "HOST_UID=$(id -u)")
+DOCKER_ARGS+=("-e" "HOST_GID=$(id -g)")
 
-if [ "$AUTH_METHOD" == "login" ]; then
-  echo "🔑 Using persistent Docker volume ('$CREDENTIALS_VOLUME') for subscription login."
-
-  # Mount the persistent named volume for the real config.
-  DOCKER_ARGS+=("-v" "$CREDENTIALS_VOLUME:/home/node/.claude")
-
-  # Also mount the host's config directory to a temporary location, READ-ONLY.
-  # This is used for the one-time bootstrap of settings.
+# --- Authentication & Settings Handling ---
+if [ "$AUTH_METHOD" == "apikey" ]; then
+  # Handle the --apikey flag case.
+  echo "🔑 Using ANTHROPIC_API_KEY."
+  if [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "❌ Error: ANTHROPIC_API_KEY environment variable is not set for --apikey mode." >&2
+    exit 1
+  fi
+  DOCKER_ARGS+=("-e" "ANTHROPIC_API_KEY")
+else
+  # Handle the default case (browser login).
+  echo "🔑 Using browser-based login (default). Your settings will be loaded."
+  # Mount the host's config directory to a temporary, read-only location.
+  # The entrypoint script will use this to bootstrap settings for the session.
   if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
     DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/tmp/host-claude-config:ro")
   fi
-
-  DOCKER_ARGS+=("-e" "HOST_UID=$(id -u)")
-  DOCKER_ARGS+=("-e" "HOST_GID=$(id -g)")
-else
-  echo "🔑 Using ANTHROPIC_API_KEY."
-  if [ -z "$ANTHROPIC_API_KEY" ]; then exit 1; fi
-  DOCKER_ARGS+=("-e" "ANTHROPIC_API_KEY")
 fi
 
+# --- Network Handling ---
 if [ -n "$NETWORK_NAME" ]; then
   DOCKER_ARGS+=("--network" "$NETWORK_NAME")
-  echo "✅ Connecting sandbox to Docker network: $NETWORK_NAME"
-else
-  echo "✅ Sandbox has internet access to reach the Claude API."
+  echo "✅ Connecting to Docker network: $NETWORK_NAME"
 fi
 
-echo "🚀 Launching Claude YOLO sandbox..."
+echo "🚀 Launching sandbox... (A browser login may be required)"
 echo "---------------------------------------------------"
 docker run "${DOCKER_ARGS[@]}" "$IMAGE_NAME"
