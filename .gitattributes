@@ -1,0 +1,6 @@
+# Force Unix line endings for shell scripts
+*.sh text eol=lf
+claude-yolo text eol=lf
+
+# Ensure Dockerfile uses Unix line endings
+Dockerfile text eol=lf

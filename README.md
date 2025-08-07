@@ -36,6 +36,15 @@ Follow these steps to get the sandbox running on a new machine.
 
 You will need the three core files: `Dockerfile`, `entrypoint.sh`, and `claude-yolo`. Clone the repository or otherwise copy them into a single directory on your machine.
 
+**Important for Windows/WSL Users:**
+If you're using WSL (Windows Subsystem for Linux), the script files may have Windows line endings that prevent execution. Fix this by running:
+```bash
+# Convert to Unix line endings
+dos2unix claude-yolo entrypoint.sh
+# Or if dos2unix isn't available:
+sed -i 's/\r$//' claude-yolo entrypoint.sh
+```
+
 **2. Make Scripts Executable**
 
 Navigate to the directory containing the files and run:
