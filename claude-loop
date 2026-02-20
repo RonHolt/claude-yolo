@@ -168,7 +168,7 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
     echo "Running Claude..."
     TMPOUT=$(mktemp)
     set +e
-    claude "${CLAUDE_ARGS[@]}" 2>"$TMPOUT.err" | tee "$TMPOUT" | jq --unbuffered -r '
+    claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$TMPOUT" | jq --unbuffered -r '
         # Tool use events (shows which tools Claude is calling)
         if .type == "assistant" then
             (.message.content[]? |
@@ -185,10 +185,20 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
 
     # Exit code 130 = SIGINT (Ctrl+C)
     if [ "$CLAUDE_EXIT" -eq 130 ]; then
-        rm -f "$TMPOUT" "$TMPOUT.err"
+        rm -f "$TMPOUT"
         echo ""
         echo "Interrupted. Exiting."
         exit 130
+    fi
+
+    # Check if Claude actually succeeded
+    if [ "$CLAUDE_EXIT" -ne 0 ]; then
+        echo "  WARNING: Claude exited with code $CLAUDE_EXIT. Skipping task."
+        # Show any error output that isn't valid JSON (raw error messages)
+        grep -v '^{' "$TMPOUT" 2>/dev/null | head -5 || true
+        rm -f "$TMPOUT"
+        echo ""
+        continue
     fi
 
     # Extract session ID for continuation
@@ -196,22 +206,33 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
     if [ -n "$NEW_SESSION" ]; then
         SESSION_ID="$NEW_SESSION"
     fi
-    rm -f "$TMPOUT" "$TMPOUT.err"
+
+    # Check if Claude actually made file changes (beyond the task file itself)
+    TASK_BASENAME=$(basename "$TASK_FILE")
+    HAS_CHANGES=false
+    if git rev-parse --is-inside-work-tree &>/dev/null; then
+        CHANGED_FILES=$(git diff --name-only; git diff --cached --name-only; git ls-files --others --exclude-standard)
+        NON_TASK_CHANGES=$(echo "$CHANGED_FILES" | grep -v "^${TASK_BASENAME}$" | grep -v '^$' || true)
+        if [ -n "$NON_TASK_CHANGES" ]; then
+            HAS_CHANGES=true
+        fi
+    fi
+
+    rm -f "$TMPOUT"
     echo ""
 
-    # Mark task as done
-    mark_task_done "$TASK_LINE"
-    echo "Marked task as completed."
+    if [ "$HAS_CHANGES" = true ]; then
+        # Mark task as done and commit
+        mark_task_done "$TASK_LINE"
+        echo "Marked task as completed."
 
-    # Auto-commit if enabled and in a git repo
-    if [ "$COMMIT_AFTER_TASK" = "true" ] && git rev-parse --is-inside-work-tree &>/dev/null; then
-        if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+        if [ "$COMMIT_AFTER_TASK" = "true" ]; then
             git add -A
             git commit -m "Complete: $TASK_DESC" 2>/dev/null || true
             echo "Changes committed."
-        else
-            echo "No changes to commit."
         fi
+    else
+        echo "  WARNING: Claude made no file changes. Task NOT marked as completed."
     fi
 
     echo ""
