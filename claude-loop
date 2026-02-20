@@ -91,11 +91,15 @@ mark_task_done() {
 }
 
 count_remaining() {
-    grep -c '^\[ \]' "$TASK_FILE" 2>/dev/null || echo 0
+    local count
+    count=$(grep -c '^\[ \]' "$TASK_FILE" 2>/dev/null) || true
+    echo "${count:-0}"
 }
 
 count_completed() {
-    grep -c '^\[x\]' "$TASK_FILE" 2>/dev/null || echo 0
+    local count
+    count=$(grep -c '^\[x\]' "$TASK_FILE" 2>/dev/null) || true
+    echo "${count:-0}"
 }
 
 # --- Main Loop ---
@@ -128,8 +132,8 @@ while [ $ITERATION -lt $MAX_ITERATIONS ]; do
     echo "Task: $TASK_DESC"
 
     # Build Claude command
-    CLAUDE_CMD="claude -p"
     CLAUDE_ARGS=(
+        "-p"
         "--dangerously-skip-permissions"
         "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch"
     )
