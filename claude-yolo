@@ -273,10 +273,20 @@ if [ -n "$AUTO_PROMPT" ]; then
     fi
     $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CLAUDE_ARGS[@]}"
 elif [ -n "$LOOP_FILE" ]; then
-    # Autonomous loop mode - mount task file into project directory (needs write access for sed -i)
-    LOOP_BASENAME=$(basename "$LOOP_FILE")
-    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/project/${LOOP_BASENAME}")
-    LOOP_CMD=("claude-loop" "/project/${LOOP_BASENAME}")
+    # Autonomous loop mode
+    LOOP_REALPATH=$(realpath "$LOOP_FILE")
+    PROJECT_DIR=$(pwd)
+    # Check if task file is inside the project directory (already mounted at /project/)
+    if [[ "$LOOP_REALPATH" == "$PROJECT_DIR"/* ]]; then
+        LOOP_RELPATH="${LOOP_REALPATH#$PROJECT_DIR/}"
+        LOOP_CMD=("claude-loop" "/project/${LOOP_RELPATH}")
+    else
+        # Task file is outside project dir - mount its parent directory
+        LOOP_DIR=$(dirname "$LOOP_REALPATH")
+        LOOP_BASENAME=$(basename "$LOOP_REALPATH")
+        DOCKER_ARGS+=("-v" "${LOOP_DIR}:/tmp/tasks")
+        LOOP_CMD=("claude-loop" "/tmp/tasks/${LOOP_BASENAME}")
+    fi
     if [ -n "$RESUME_ID" ]; then
         LOOP_CMD+=("--continue" "$RESUME_ID")
     fi
