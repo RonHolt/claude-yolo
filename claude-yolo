@@ -270,6 +270,6 @@ elif [ -n "$LOOP_FILE" ]; then
     fi
     $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${LOOP_CMD[@]}"
 else
-    # Interactive mode
-    $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME"
+    # Interactive mode - launch Claude with full permissions (YOLO mode)
+    $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" claude --dangerously-skip-permissions
 fi
