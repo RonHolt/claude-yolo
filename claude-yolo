@@ -206,6 +206,9 @@ fi
 DOCKER_ARGS+=("-e" "HOST_UID=$(id -u)")
 DOCKER_ARGS+=("-e" "HOST_GID=$(id -g)")
 
+# Pass through terminal type for proper terminal behavior
+DOCKER_ARGS+=("-e" "TERM=${TERM:-xterm-256color}")
+
 # --- Authentication & Settings ---
 if [ "$AUTH_METHOD" = "apikey" ]; then
     DOCKER_ARGS+=("-e" "ANTHROPIC_API_KEY")
