@@ -273,10 +273,10 @@ if [ -n "$AUTO_PROMPT" ]; then
     fi
     $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CLAUDE_ARGS[@]}"
 elif [ -n "$LOOP_FILE" ]; then
-    # Autonomous loop mode - mount the loop script and task file
+    # Autonomous loop mode - mount task file into project directory (needs write access for sed -i)
     LOOP_BASENAME=$(basename "$LOOP_FILE")
-    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/tmp/tasks/${LOOP_BASENAME}")
-    LOOP_CMD=("claude-loop" "/tmp/tasks/${LOOP_BASENAME}")
+    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/project/${LOOP_BASENAME}")
+    LOOP_CMD=("claude-loop" "/project/${LOOP_BASENAME}")
     if [ -n "$RESUME_ID" ]; then
         LOOP_CMD+=("--continue" "$RESUME_ID")
     fi
