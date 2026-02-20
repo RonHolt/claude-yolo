@@ -162,25 +162,28 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
         CLAUDE_ARGS+=("--resume" "$SESSION_ID")
     fi
 
-    # Run Claude
+    # Run Claude (stream output live via tee, capture to temp file)
     echo "Running Claude..."
-    CLAUDE_EXIT=0
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1) || CLAUDE_EXIT=$?
+    TMPOUT=$(mktemp)
+    set +e
+    claude "${CLAUDE_ARGS[@]}" 2>&1 | tee "$TMPOUT"
+    CLAUDE_EXIT=${PIPESTATUS[0]}
+    set -e
 
     # Exit code 130 = SIGINT (Ctrl+C)
     if [ "$CLAUDE_EXIT" -eq 130 ]; then
+        rm -f "$TMPOUT"
         echo ""
         echo "Interrupted. Exiting."
         exit 130
     fi
 
     # Extract session ID for continuation
-    NEW_SESSION=$(echo "$OUTPUT" | grep -o 'session_id: [a-f0-9-]*' | tail -1 | cut -d' ' -f2 || true)
+    NEW_SESSION=$(grep -o 'session_id: [a-f0-9-]*' "$TMPOUT" | tail -1 | cut -d' ' -f2 || true)
     if [ -n "$NEW_SESSION" ]; then
         SESSION_ID="$NEW_SESSION"
     fi
-
-    echo "$OUTPUT" | tail -5
+    rm -f "$TMPOUT"
     echo ""
 
     # Mark task as done
