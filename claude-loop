@@ -16,6 +16,13 @@
 
 set -e
 
+# Guard: only run inside a container (claude-loop uses --dangerously-skip-permissions)
+if [ ! -f /.dockerenv ] && [ -z "$CLAUDE_YOLO_CONTAINER" ]; then
+    echo "Error: claude-loop should only run inside the claude-yolo container." >&2
+    echo "Use: claude-yolo --loop <task-file>" >&2
+    exit 1
+fi
+
 # Exit cleanly on Ctrl+C / SIGTERM
 trap 'echo ""; echo "Interrupted. Exiting."; exit 130' INT TERM
 
