@@ -154,6 +154,7 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
     CLAUDE_ARGS=(
         "-p" "$PROMPT"
         "--output-format" "stream-json"
+        "--verbose"
         "--dangerously-skip-permissions"
         "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch"
     )
@@ -163,20 +164,20 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
         CLAUDE_ARGS+=("--resume" "$SESSION_ID")
     fi
 
-    # Run Claude (stream JSON, show live progress, capture for session ID)
+    # Run Claude (stream JSON with --verbose, show live progress)
     echo "Running Claude..."
     TMPOUT=$(mktemp)
     set +e
-    claude "${CLAUDE_ARGS[@]}" 2>"$TMPOUT.err" | tee "$TMPOUT" | jq -r '
+    claude "${CLAUDE_ARGS[@]}" 2>"$TMPOUT.err" | tee "$TMPOUT" | jq --unbuffered -r '
+        # Tool use events (shows which tools Claude is calling)
         if .type == "assistant" then
             (.message.content[]? |
                 if .type == "tool_use" then
                     "  \u2192 \(.name): \(.input | to_entries | first | .value | tostring | .[0:80])"
-                elif .type == "text" then
-                    (.text | split("\n")[0] | .[0:120] | select(length > 0) | "  \(.)")
                 else empty end)
+        # Final result
         elif .type == "result" then
-            "\n  Done: \(.result | split("\n")[0] | .[0:120])"
+            "\n  Done: \(.result | tostring | split("\n")[0] | .[0:120])"
         else empty end
     ' 2>/dev/null
     CLAUDE_EXIT=${PIPESTATUS[0]}
