@@ -16,6 +16,9 @@
 
 set -e
 
+# Exit cleanly on Ctrl+C / SIGTERM
+trap 'echo ""; echo "Interrupted. Exiting."; exit 130' INT TERM
+
 # --- Configuration ---
 MAX_ITERATIONS=${MAX_ITERATIONS:-20}
 COMMIT_AFTER_TASK=true
@@ -154,7 +157,15 @@ Complete this task thoroughly. When done, provide a brief summary of what you di
 
     # Run Claude
     echo "Running Claude..."
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1) || true
+    CLAUDE_EXIT=0
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1) || CLAUDE_EXIT=$?
+
+    # Exit code 130 = SIGINT (Ctrl+C)
+    if [ "$CLAUDE_EXIT" -eq 130 ]; then
+        echo ""
+        echo "Interrupted. Exiting."
+        exit 130
+    fi
 
     # Extract session ID for continuation
     NEW_SESSION=$(echo "$OUTPUT" | grep -o 'session_id: [a-f0-9-]*' | tail -1 | cut -d' ' -f2 || true)
