@@ -46,6 +46,12 @@ elif [ -d "/tmp/host-claude-config" ]; then
     rsync -a --exclude '.credentials.json' /tmp/host-claude-config/ /home/node/.claude/
 fi
 
+# Copy ~/.claude.json config if mounted from host
+if [ -f "/tmp/host-claude.json" ]; then
+    cp /tmp/host-claude.json /home/node/.claude.json
+    chown "${USER_ID}":"${GROUP_ID}" /home/node/.claude.json
+fi
+
 # --- OAuth Token Injection ---
 # If CLAUDE_CODE_OAUTH_TOKEN is set, write it to the credentials file.
 if [ -n "${CLAUDE_CODE_OAUTH_TOKEN}" ]; then

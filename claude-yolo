@@ -12,7 +12,7 @@ HOST_CLAUDE_CONFIG_DIR="$HOME/.claude"
 AUTH_METHOD="login"
 NETWORK_NAME=""
 SAFE_MODE=false
-PERSIST_AUTH=false
+PERSIST_AUTH=true
 ENABLE_FIREWALL=false
 AUTO_PROMPT=""
 LOOP_FILE=""
@@ -38,9 +38,9 @@ Usage:
   claude-yolo [options] [network-name]
 
 Authentication:
-  (default)              Browser-based login (copies ~/.claude settings)
+  (default)              Persists auth across sessions (mounts ~/.claude read-write)
+  --no-persist           Ephemeral mode (copies ~/.claude read-only, lost on exit)
   --apikey               Use ANTHROPIC_API_KEY environment variable
-  --persist              Mount ~/.claude read-write (persists auth across sessions)
 
 Isolation:
   --safe                 Copy project files into container (originals untouched)
@@ -64,7 +64,7 @@ Examples:
   claude-yolo                          # Interactive session, browser login
   claude-yolo --apikey                 # Interactive session, API key auth
   claude-yolo --safe --firewall        # Maximum isolation
-  claude-yolo --persist                # Keep auth across sessions
+  claude-yolo --no-persist              # Ephemeral session, no auth saved
   claude-yolo --auto "fix all lint errors"   # Headless autonomous run
   claude-yolo --loop tasks.md          # Autonomous task loop
   claude-yolo my-network               # Join a Docker network
@@ -85,6 +85,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --persist)
             PERSIST_AUTH=true
+            shift
+            ;;
+        --no-persist)
+            PERSIST_AUTH=false
             shift
             ;;
         --firewall)
@@ -211,10 +215,18 @@ elif [ "$PERSIST_AUTH" = "true" ]; then
     if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
         DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/home/node/.claude")
     fi
+    # Also persist ~/.claude.json (config lives outside ~/.claude/)
+    if [ -f "$HOME/.claude.json" ]; then
+        DOCKER_ARGS+=("-v" "$HOME/.claude.json:/home/node/.claude.json")
+    fi
 else
     # Default: read-only mount, rsync in entrypoint
     if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
         DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/tmp/host-claude-config:ro")
+    fi
+    # Mount ~/.claude.json if it exists (Claude Code config lives outside ~/.claude/)
+    if [ -f "$HOME/.claude.json" ]; then
+        DOCKER_ARGS+=("-v" "$HOME/.claude.json:/tmp/host-claude.json:ro")
     fi
 fi
 
