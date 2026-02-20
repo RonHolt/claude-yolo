@@ -131,18 +131,6 @@ while [ $ITERATION -lt $MAX_ITERATIONS ]; do
 
     echo "Task: $TASK_DESC"
 
-    # Build Claude command
-    CLAUDE_ARGS=(
-        "-p"
-        "--dangerously-skip-permissions"
-        "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch"
-    )
-
-    # Continue from previous session if available
-    if [ -n "$SESSION_ID" ]; then
-        CLAUDE_ARGS+=("--resume" "$SESSION_ID")
-    fi
-
     # Build the prompt with context
     PROMPT="You are working through a task list. Here is the full task file for context:
 
@@ -152,9 +140,21 @@ Your current task is: $TASK_DESC
 
 Complete this task thoroughly. When done, provide a brief summary of what you did."
 
+    # Build Claude command (-p must be followed immediately by the prompt)
+    CLAUDE_ARGS=(
+        "-p" "$PROMPT"
+        "--dangerously-skip-permissions"
+        "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch"
+    )
+
+    # Continue from previous session if available
+    if [ -n "$SESSION_ID" ]; then
+        CLAUDE_ARGS+=("--resume" "$SESSION_ID")
+    fi
+
     # Run Claude
     echo "Running Claude..."
-    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" "$PROMPT" 2>&1) || true
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" 2>&1) || true
 
     # Extract session ID for continuation
     NEW_SESSION=$(echo "$OUTPUT" | grep -o 'session_id: [a-f0-9-]*' | tail -1 | cut -d' ' -f2 || true)
