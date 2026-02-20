@@ -1,71 +1,275 @@
 #!/bin/bash
-# File: claude-yolo
-
-# --- Launches an Optimized Ephemeral Sandbox ---
-# Default behavior is browser-based login. Use --apikey for API key authentication.
+# claude-yolo - Hardened Docker sandbox for autonomous Claude Code sessions
+# https://github.com/RonHolt/claude-yolo
 
 set -e
+
+VERSION="2.0.0"
 IMAGE_NAME="claude-yolo-env"
 HOST_CLAUDE_CONFIG_DIR="$HOME/.claude"
 
-# Check if Docker image exists
-if ! docker image inspect "$IMAGE_NAME" &>/dev/null; then
-  echo "❌ Error: Docker image '$IMAGE_NAME' not found!"
-  echo "Please build the image first by running:"
-  echo "  docker build -t claude-yolo-env ."
-  echo "Run this command in the directory containing the Dockerfile."
-  exit 1
-fi
-
-# --- Argument Parsing ---
-# Default to the interactive browser login method.
+# --- Defaults ---
 AUTH_METHOD="login"
 NETWORK_NAME=""
-while (("$#")); do
-  case "$1" in
-  --apikey)
-    AUTH_METHOD="apikey"
-    shift
-    ;;
-  *)
-    if [ -z "$NETWORK_NAME" ]; then NETWORK_NAME="$1"; fi
-    shift
-    ;;
-  esac
+SAFE_MODE=false
+PERSIST_AUTH=false
+ENABLE_FIREWALL=false
+AUTO_PROMPT=""
+LOOP_FILE=""
+RESUME_ID=""
+CONTAINER_RUNTIME="docker"
+
+# --- Detect Container Runtime ---
+if command -v docker &>/dev/null; then
+    CONTAINER_RUNTIME="docker"
+elif command -v podman &>/dev/null; then
+    CONTAINER_RUNTIME="podman"
+else
+    echo "Error: Neither docker nor podman found in PATH." >&2
+    exit 1
+fi
+
+# --- Usage ---
+usage() {
+    cat <<'EOF'
+claude-yolo - Hardened Docker sandbox for autonomous Claude Code sessions
+
+Usage:
+  claude-yolo [options] [network-name]
+
+Authentication:
+  (default)              Browser-based login (copies ~/.claude settings)
+  --apikey               Use ANTHROPIC_API_KEY environment variable
+  --persist              Mount ~/.claude read-write (persists auth across sessions)
+
+Isolation:
+  --safe                 Copy project files into container (originals untouched)
+  --firewall             Enable network allowlisting inside container
+
+Autonomous Mode:
+  --auto <prompt>        Run Claude headless with the given prompt, then exit
+  --loop <task-file>     Run autonomous task loop with a PRD/todo file
+  --resume <session-id>  Continue a previous headless session
+
+Other:
+  network-name           Connect container to a Docker network
+  --version              Print version and exit
+  --help                 Print this help and exit
+
+Environment Variables:
+  ANTHROPIC_API_KEY          API key for --apikey mode
+  CLAUDE_CODE_OAUTH_TOKEN    OAuth token (auto-injected into container)
+
+Examples:
+  claude-yolo                          # Interactive session, browser login
+  claude-yolo --apikey                 # Interactive session, API key auth
+  claude-yolo --safe --firewall        # Maximum isolation
+  claude-yolo --persist                # Keep auth across sessions
+  claude-yolo --auto "fix all lint errors"   # Headless autonomous run
+  claude-yolo --loop tasks.md          # Autonomous task loop
+  claude-yolo my-network               # Join a Docker network
+
+EOF
+}
+
+# --- Argument Parsing ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --apikey)
+            AUTH_METHOD="apikey"
+            shift
+            ;;
+        --safe)
+            SAFE_MODE=true
+            shift
+            ;;
+        --persist)
+            PERSIST_AUTH=true
+            shift
+            ;;
+        --firewall)
+            ENABLE_FIREWALL=true
+            shift
+            ;;
+        --auto)
+            if [ -z "$2" ] || [ "${2:0:2}" = "--" ]; then
+                echo "Error: --auto requires a prompt string." >&2
+                echo "Usage: claude-yolo --auto \"your prompt here\"" >&2
+                exit 1
+            fi
+            AUTO_PROMPT="$2"
+            shift 2
+            ;;
+        --loop)
+            if [ -z "$2" ] || [ "${2:0:2}" = "--" ]; then
+                echo "Error: --loop requires a task file path." >&2
+                echo "Usage: claude-yolo --loop tasks.md" >&2
+                exit 1
+            fi
+            LOOP_FILE="$2"
+            shift 2
+            ;;
+        --resume)
+            if [ -z "$2" ] || [ "${2:0:2}" = "--" ]; then
+                echo "Error: --resume requires a session ID." >&2
+                exit 1
+            fi
+            RESUME_ID="$2"
+            shift 2
+            ;;
+        --version)
+            echo "claude-yolo v${VERSION}"
+            exit 0
+            ;;
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        -*)
+            echo "Error: Unknown option: $1" >&2
+            echo "Run 'claude-yolo --help' for usage." >&2
+            exit 1
+            ;;
+        *)
+            if [ -z "$NETWORK_NAME" ]; then
+                NETWORK_NAME="$1"
+            else
+                echo "Error: Unexpected argument: $1" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
 done
 
-# Use a bash array for cleaner Docker arguments.
-DOCKER_ARGS=("--rm" "-it")
-DOCKER_ARGS+=("-v" "$(pwd):/project")
-DOCKER_ARGS+=("-v" "/var/run/docker.sock:/var/run/docker.sock")
+# --- Validation ---
+if ! $CONTAINER_RUNTIME image inspect "$IMAGE_NAME" &>/dev/null; then
+    echo "Error: Docker image '$IMAGE_NAME' not found." >&2
+    echo ""
+    echo "Build it first:"
+    echo "  docker build -t claude-yolo-env ."
+    echo ""
+    echo "Run this in the directory containing the Dockerfile."
+    exit 1
+fi
+
+if [ "$AUTH_METHOD" = "apikey" ] && [ -z "$ANTHROPIC_API_KEY" ]; then
+    echo "Error: ANTHROPIC_API_KEY environment variable is not set." >&2
+    echo ""
+    echo "Either export it first:"
+    echo "  export ANTHROPIC_API_KEY='sk-ant-...'"
+    echo ""
+    echo "Or use browser login instead (drop the --apikey flag)."
+    exit 1
+fi
+
+if [ -n "$LOOP_FILE" ] && [ ! -f "$LOOP_FILE" ]; then
+    echo "Error: Task file not found: $LOOP_FILE" >&2
+    exit 1
+fi
+
+if [ "$PERSIST_AUTH" = "true" ] && [ "$AUTH_METHOD" = "apikey" ]; then
+    echo "Warning: --persist has no effect with --apikey mode." >&2
+fi
+
+# --- Build Docker Arguments ---
+DOCKER_ARGS=("--rm")
+
+# Interactive mode unless running headless
+if [ -z "$AUTO_PROMPT" ] && [ -z "$LOOP_FILE" ]; then
+    DOCKER_ARGS+=("-it")
+else
+    DOCKER_ARGS+=("-t")
+fi
+
+# Project mount
+if [ "$SAFE_MODE" = "true" ]; then
+    # Safe mode: mount as read-only to a temp location, entrypoint copies it
+    DOCKER_ARGS+=("-v" "$(pwd):/project-copy:ro")
+    DOCKER_ARGS+=("-e" "SAFE_MODE=true")
+else
+    DOCKER_ARGS+=("-v" "$(pwd):/project")
+fi
+
+# Container runtime socket
+if [ -S /var/run/docker.sock ]; then
+    DOCKER_ARGS+=("-v" "/var/run/docker.sock:/var/run/docker.sock")
+elif [ -S /run/podman/podman.sock ]; then
+    DOCKER_ARGS+=("-v" "/run/podman/podman.sock:/run/podman/podman.sock")
+fi
+
+# Host UID/GID for permission matching
 DOCKER_ARGS+=("-e" "HOST_UID=$(id -u)")
 DOCKER_ARGS+=("-e" "HOST_GID=$(id -g)")
 
-# --- Authentication & Settings Handling ---
-if [ "$AUTH_METHOD" == "apikey" ]; then
-  # Handle the --apikey flag case.
-  echo "🔑 Using ANTHROPIC_API_KEY."
-  if [ -z "$ANTHROPIC_API_KEY" ]; then
-    echo "❌ Error: ANTHROPIC_API_KEY environment variable is not set for --apikey mode." >&2
-    exit 1
-  fi
-  DOCKER_ARGS+=("-e" "ANTHROPIC_API_KEY")
+# --- Authentication & Settings ---
+if [ "$AUTH_METHOD" = "apikey" ]; then
+    DOCKER_ARGS+=("-e" "ANTHROPIC_API_KEY")
+elif [ "$PERSIST_AUTH" = "true" ]; then
+    # Read-write mount for credential persistence
+    DOCKER_ARGS+=("-e" "PERSIST_AUTH=true")
+    if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
+        DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/home/node/.claude")
+    fi
 else
-  # Handle the default case (browser login).
-  echo "🔑 Using browser-based login (default). Your settings will be loaded."
-  # Mount the host's config directory to a temporary, read-only location.
-  # The entrypoint script will use this to bootstrap settings for the session.
-  if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
-    DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/tmp/host-claude-config:ro")
-  fi
+    # Default: read-only mount, rsync in entrypoint
+    if [ -d "$HOST_CLAUDE_CONFIG_DIR" ]; then
+        DOCKER_ARGS+=("-v" "$HOST_CLAUDE_CONFIG_DIR:/tmp/host-claude-config:ro")
+    fi
 fi
 
-# --- Network Handling ---
+# OAuth token passthrough
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    DOCKER_ARGS+=("-e" "CLAUDE_CODE_OAUTH_TOKEN")
+fi
+
+# --- Firewall ---
+if [ "$ENABLE_FIREWALL" = "true" ]; then
+    DOCKER_ARGS+=("-e" "ENABLE_FIREWALL=true")
+    DOCKER_ARGS+=("--cap-add=NET_ADMIN")
+fi
+
+# --- Network ---
 if [ -n "$NETWORK_NAME" ]; then
-  DOCKER_ARGS+=("--network" "$NETWORK_NAME")
-  echo "✅ Connecting to Docker network: $NETWORK_NAME"
+    DOCKER_ARGS+=("--network" "$NETWORK_NAME")
 fi
 
-echo "🚀 Launching sandbox... (A browser login may be required)"
-echo "---------------------------------------------------"
-docker run "${DOCKER_ARGS[@]}" "$IMAGE_NAME"
+# --- Print Launch Summary ---
+echo "claude-yolo v${VERSION}"
+echo "---"
+FLAGS=()
+[ "$AUTH_METHOD" = "apikey" ] && FLAGS+=("apikey")
+[ "$AUTH_METHOD" = "login" ] && [ "$PERSIST_AUTH" = "true" ] && FLAGS+=("persist")
+[ "$AUTH_METHOD" = "login" ] && [ "$PERSIST_AUTH" != "true" ] && FLAGS+=("browser-login")
+[ "$SAFE_MODE" = "true" ] && FLAGS+=("safe")
+[ "$ENABLE_FIREWALL" = "true" ] && FLAGS+=("firewall")
+[ -n "$AUTO_PROMPT" ] && FLAGS+=("auto")
+[ -n "$LOOP_FILE" ] && FLAGS+=("loop")
+[ -n "$RESUME_ID" ] && FLAGS+=("resume:${RESUME_ID}")
+[ -n "$NETWORK_NAME" ] && FLAGS+=("network:${NETWORK_NAME}")
+echo "Mode: ${FLAGS[*]}"
+echo "Directory: $(pwd)"
+echo "Runtime: $CONTAINER_RUNTIME"
+echo "---"
+
+# --- Determine Command ---
+if [ -n "$AUTO_PROMPT" ]; then
+    # Headless autonomous mode
+    CLAUDE_ARGS=("claude" "-p" "$AUTO_PROMPT" "--dangerously-skip-permissions" "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch")
+    if [ -n "$RESUME_ID" ]; then
+        CLAUDE_ARGS+=("--resume" "$RESUME_ID")
+    fi
+    $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${CLAUDE_ARGS[@]}"
+elif [ -n "$LOOP_FILE" ]; then
+    # Autonomous loop mode - mount the loop script and task file
+    LOOP_BASENAME=$(basename "$LOOP_FILE")
+    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/tmp/tasks/${LOOP_BASENAME}:ro")
+    LOOP_CMD=("claude-loop" "/tmp/tasks/${LOOP_BASENAME}")
+    if [ -n "$RESUME_ID" ]; then
+        LOOP_CMD+=("--continue" "$RESUME_ID")
+    fi
+    $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME" "${LOOP_CMD[@]}"
+else
+    # Interactive mode
+    $CONTAINER_RUNTIME run "${DOCKER_ARGS[@]}" "$IMAGE_NAME"
+fi

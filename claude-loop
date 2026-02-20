@@ -1,0 +1,183 @@
+#!/bin/bash
+# claude-loop - Autonomous task loop for Claude Code
+# Inspired by the Ralph pattern (https://github.com/iannuttall/ralph)
+#
+# Reads a task file (PRD, todo list, or simple prompt file), executes tasks
+# one at a time using Claude's headless mode, commits progress, and repeats.
+#
+# Usage:
+#   claude-loop <task-file> [--max-iterations N] [--no-commit]
+#
+# Task file format (one task per line, prefix with [x] when done):
+#   [ ] Implement user authentication
+#   [ ] Add input validation to forms
+#   [ ] Write unit tests for auth module
+#   [x] Set up project scaffolding (already done, will be skipped)
+
+set -e
+
+# --- Configuration ---
+MAX_ITERATIONS=${MAX_ITERATIONS:-20}
+COMMIT_AFTER_TASK=true
+SESSION_ID=""
+TASK_FILE=""
+
+# --- Argument Parsing ---
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --max-iterations)
+            MAX_ITERATIONS="$2"
+            shift 2
+            ;;
+        --no-commit)
+            COMMIT_AFTER_TASK=false
+            shift
+            ;;
+        --continue)
+            if [ -n "$2" ] && [ "${2:0:1}" != "-" ]; then
+                SESSION_ID="$2"
+                shift 2
+            else
+                echo "Error: --continue requires a session ID" >&2
+                exit 1
+            fi
+            ;;
+        -h|--help)
+            echo "Usage: claude-loop <task-file> [options]"
+            echo ""
+            echo "Options:"
+            echo "  --max-iterations N   Maximum loop iterations (default: 20)"
+            echo "  --no-commit          Don't auto-commit after each task"
+            echo "  --continue ID        Continue from a previous session"
+            echo "  -h, --help           Show this help"
+            echo ""
+            echo "Task file format (one task per line):"
+            echo "  [ ] Task description"
+            echo "  [x] Completed task (skipped)"
+            exit 0
+            ;;
+        *)
+            if [ -z "$TASK_FILE" ]; then
+                TASK_FILE="$1"
+            else
+                echo "Error: Unexpected argument: $1" >&2
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$TASK_FILE" ]; then
+    echo "Error: Task file is required." >&2
+    echo "Usage: claude-loop <task-file> [--max-iterations N] [--no-commit]" >&2
+    exit 1
+fi
+
+if [ ! -f "$TASK_FILE" ]; then
+    echo "Error: Task file not found: $TASK_FILE" >&2
+    exit 1
+fi
+
+# --- Helper Functions ---
+get_next_task() {
+    # Find first uncompleted task (line starting with "[ ]")
+    grep -n '^\[ \]' "$TASK_FILE" | head -1
+}
+
+mark_task_done() {
+    local line_num="$1"
+    sed -i "${line_num}s/^\[ \]/[x]/" "$TASK_FILE"
+}
+
+count_remaining() {
+    grep -c '^\[ \]' "$TASK_FILE" 2>/dev/null || echo 0
+}
+
+count_completed() {
+    grep -c '^\[x\]' "$TASK_FILE" 2>/dev/null || echo 0
+}
+
+# --- Main Loop ---
+echo "=== Claude Autonomous Loop ==="
+echo "Task file: $TASK_FILE"
+echo "Max iterations: $MAX_ITERATIONS"
+echo "Auto-commit: $COMMIT_AFTER_TASK"
+echo ""
+
+ITERATION=0
+while [ $ITERATION -lt $MAX_ITERATIONS ]; do
+    ITERATION=$((ITERATION + 1))
+    REMAINING=$(count_remaining)
+    COMPLETED=$(count_completed)
+
+    echo "--- Iteration $ITERATION/$MAX_ITERATIONS (done: $COMPLETED, remaining: $REMAINING) ---"
+
+    # Check if all tasks are done
+    if [ "$REMAINING" -eq 0 ]; then
+        echo ""
+        echo "All tasks completed! ($COMPLETED total)"
+        exit 0
+    fi
+
+    # Get next task
+    NEXT=$(get_next_task)
+    TASK_LINE=$(echo "$NEXT" | cut -d: -f1)
+    TASK_DESC=$(echo "$NEXT" | cut -d: -f2- | sed 's/^\[ \] //')
+
+    echo "Task: $TASK_DESC"
+
+    # Build Claude command
+    CLAUDE_CMD="claude -p"
+    CLAUDE_ARGS=(
+        "--dangerously-skip-permissions"
+        "--allowedTools" "Bash,Read,Edit,Write,Glob,Grep,WebSearch,WebFetch"
+    )
+
+    # Continue from previous session if available
+    if [ -n "$SESSION_ID" ]; then
+        CLAUDE_ARGS+=("--resume" "$SESSION_ID")
+    fi
+
+    # Build the prompt with context
+    PROMPT="You are working through a task list. Here is the full task file for context:
+
+$(cat "$TASK_FILE")
+
+Your current task is: $TASK_DESC
+
+Complete this task thoroughly. When done, provide a brief summary of what you did."
+
+    # Run Claude
+    echo "Running Claude..."
+    OUTPUT=$(claude "${CLAUDE_ARGS[@]}" "$PROMPT" 2>&1) || true
+
+    # Extract session ID for continuation
+    NEW_SESSION=$(echo "$OUTPUT" | grep -o 'session_id: [a-f0-9-]*' | tail -1 | cut -d' ' -f2 || true)
+    if [ -n "$NEW_SESSION" ]; then
+        SESSION_ID="$NEW_SESSION"
+    fi
+
+    echo "$OUTPUT" | tail -5
+    echo ""
+
+    # Mark task as done
+    mark_task_done "$TASK_LINE"
+    echo "Marked task as completed."
+
+    # Auto-commit if enabled and in a git repo
+    if [ "$COMMIT_AFTER_TASK" = "true" ] && git rev-parse --is-inside-work-tree &>/dev/null; then
+        if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            git add -A
+            git commit -m "Complete: $TASK_DESC" 2>/dev/null || true
+            echo "Changes committed."
+        else
+            echo "No changes to commit."
+        fi
+    fi
+
+    echo ""
+done
+
+echo "Reached max iterations ($MAX_ITERATIONS). $(count_remaining) tasks remaining."
+exit 1

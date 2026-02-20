@@ -1,148 +1,253 @@
-# Claude YOLO Sandbox: An Optimized Ephemeral Sandbox for AI-Powered Development
+# Claude YOLO Sandbox
 
-## 1. Philosophy and Purpose
+A hardened Docker sandbox for fully autonomous Claude Code sessions - with zero risk to the host machine.
 
-This project provides a secure, flexible, and powerful **ephemeral (temporary)** sandbox for using the `claude-code` CLI. Its primary goal is to empower an AI agent to work on any local project with full Docker-in-Docker capabilities, without compromising the host machine.
+## Why This Exists
 
-After extensive testing, this model accepts and works with the security design of the `claude-code` CLI, which appears to invalidate login tokens between different container sessions. Therefore, to ensure security and stability, **a browser login is required once per session** when using a subscription. This README explains how this process is made as seamless as possible.
+Claude Code now has [native sandboxing](https://code.claude.com/docs/en/sandboxing) (bubblewrap/Seatbelt), an [official devcontainer](https://code.claude.com/docs/en/devcontainer), and [Docker Desktop integration](https://docs.docker.com/ai/sandboxes/agents/claude-code/). Those are great for interactive use. But for **fully unattended autonomous operation** - running Claude for hours without any human intervention - Docker containers remain the strongest isolation boundary:
 
-## 2. Key Features
+- **Inside the container**: Claude has full god-mode permissions and unrestricted network access
+- **Outside the container**: Your host is completely untouched. Worst case = kill the container
+- **No prompts**: No domain allowlist interruptions, no permission prompts, no escape hatches
 
-- **Single Command Launch**: A single, universal `claude-yolo` command launches a pre-configured sandbox from any directory.
-- **Flexible Authentication**: Defaults to the interactive browser login for Claude Pro/Max users. An `--apikey` flag is available for automated or API-based workflows.
-- **Automatic Settings Bootstrap**: On every launch, it automatically and seamlessly copies your settings from `~/.claude` on your host (agents, custom commands, etc.) into the sandbox, giving you a consistent experience every time.
-- **Full Docker-in-Docker Control**: The sandbox has secure access to the host's Docker daemon, allowing the AI to run `docker` and `docker compose` commands (e.g., `docker exec`, `docker ps`) to inspect and interact with sibling containers.
-- **Correct File Permissions**: An intelligent `entrypoint` script ensures that any files created or modified by the AI inside the container have the correct user and group ownership on your host machine, eliminating `permission denied` errors.
-- **Works from Anywhere**: You can launch the sandbox from any project directory on your filesystem, and it will correctly mount the current directory.
+### When to Use This vs Alternatives
 
-## 3. How It Works: The Architecture
+| Feature | Native Sandbox | Official Devcontainer | Docker Desktop | **claude-yolo** |
+|---|---|---|---|---|
+| Host isolation | OS-level (bubblewrap) | Docker + firewall | Docker | **Docker** |
+| Fully autonomous (no prompts) | Domain prompts interrupt | Yes (with DSP) | Yes | **Yes** |
+| Unrestricted network | Allowlist-only | Allowlist-only | Varies | **Full access** |
+| Docker-in-Docker | No | No | No | **Yes** |
+| Terminal-first (no VS Code) | Yes | No (VS Code focused) | CLI | **Yes** |
+| Zero host risk | Has escape vectors | Firewall can be bypassed | Good | **Hard boundary** |
+| Long unattended runs | Prompts block | Good | Good | **Built for this** |
+| Headless/auto mode | Manual setup | Manual setup | Manual setup | **First-class** |
 
-This solution uses a combination of Docker features to create a robust environment:
+**Use native sandbox** for everyday interactive Claude Code use.
+**Use claude-yolo** when you want to let Claude run autonomously with zero risk to your host.
 
-1.  **The `claude-yolo` Script**: This is the user-facing command. It parses arguments (like `--apikey` or a network name) and assembles the `docker run` command with the correct flags.
-2.  **The `Dockerfile`**: This defines the sandbox environment. It installs `node`, the `claude-code` CLI, the Docker client, `rsync` (for settings copying), and `gosu` (a lightweight tool for user switching).
-3.  **The `entrypoint.sh` Script**: This is the heart of the sandbox. It runs as `root` the moment a container starts, before you get a shell. It performs several critical tasks:
-    - It matches the container's internal `node` user to your host user's ID.
-    - It securely grants the `node` user permission to use the mounted Docker socket.
-    - It uses `rsync` to copy your `~/.claude` settings into the container's home directory.
-    - It fixes the final file ownership of the settings directory.
-    - Finally, it drops root privileges and starts the user's `bash` shell.
+See [docs/RESEARCH-2026-02.md](docs/RESEARCH-2026-02.md) for the full research behind this decision.
 
-## 4. Installation (For New Developers)
+## Quick Start
 
-Follow these steps to get the sandbox running on a new machine.
-
-**1. Get the Project Files**
-
-You will need the three core files: `Dockerfile`, `entrypoint.sh`, and `claude-yolo`. Clone the repository or otherwise copy them into a single directory on your machine.
-
-**Important for Windows/WSL Users:**
-If you're using WSL (Windows Subsystem for Linux), the script files may have Windows line endings that prevent execution. Fix this by running:
-```bash
-# Convert to Unix line endings
-dos2unix claude-yolo entrypoint.sh
-# Or if dos2unix isn't available, use sed:
-sed -i 's/\r$//' claude-yolo entrypoint.sh
-```
-
-**2. Make Scripts Executable**
-
-Navigate to the directory containing the files and run:
+### 1. Build the Docker image
 
 ```bash
-chmod +x claude-yolo
-chmod +x entrypoint.sh
-```
-
-**3. Build the Docker Image (REQUIRED!)**
-
-From within the same directory, build the `claude-yolo-env` image. **This step is mandatory - the container won't work without it!**
-
-```bash
+git clone https://github.com/RonHolt/claude-yolo.git
+cd claude-yolo
 docker build -t claude-yolo-env .
 ```
 
-If you see errors like "exec /usr/local/bin/entrypoint.sh: no such file or directory", it means the Docker image hasn't been built yet.
-
-**4. Install the Main Script**
-
-Move the `claude-yolo` script to a directory in your system's `PATH` to make it a globally available command.
+### 2. Install the scripts
 
 ```bash
-sudo mv claude-yolo /usr/local/bin/
+chmod +x claude-yolo claude-loop entrypoint.sh init-firewall.sh
+sudo cp claude-yolo /usr/local/bin/
+sudo cp claude-loop /usr/local/bin/   # Optional: for autonomous loops
 ```
 
-**5. One-Time Host Setup (Choose One Method)**
+### 3. Set up authentication (choose one)
 
-- **For Subscription Users (Recommended):** Log in on your host machine once to create the `~/.claude` settings directory.
-  ```bash
-  claude login
-  ```
-- **For API Key Users:** Set the `ANTHROPIC_API_KEY` environment variable on your host machine (e.g., in `~/.bashrc` or `~/.zshrc`).
-  ```bash
-  export ANTHROPIC_API_KEY='sk-ant-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
-  ```
+**Browser login (default)** - log in on your host once to create `~/.claude`:
+```bash
+claude login
+```
 
-## 5. Daily Workflow & Usage
+**API key** - set the environment variable:
+```bash
+export ANTHROPIC_API_KEY='sk-ant-...'
+```
 
-#### Default: Interactive Session (Browser Login)
+**OAuth token** - for CI/automation:
+```bash
+export CLAUDE_CODE_OAUTH_TOKEN='your-token-here'
+```
 
-This is the primary use case. It uses your Claude Pro/Max subscription and automatically loads all your settings. Navigate to any project directory and run:
+### 4. Launch
 
 ```bash
-# Start a session in the current directory
+cd /path/to/your/project
+claude-yolo
+```
+
+## Usage
+
+### Interactive Mode (Default)
+
+```bash
+# Browser login, settings copied from host
 claude-yolo
 
-# Start a session and connect to a running Docker network
+# API key authentication
+claude-yolo --apikey
+
+# Persist auth across sessions (no re-login needed)
+claude-yolo --persist
+
+# Connect to a Docker network
 claude-yolo my-project_default
 ```
 
-You will be prompted by the `claude` CLI to log in via your browser. This is expected for each session.
+### Autonomous Mode
 
-#### Alternative: API Key Session
-
-For automated tasks, use the `--apikey` flag. This will not load your `~/.claude` settings.
+Run Claude headless - it executes the prompt and exits:
 
 ```bash
-claude-yolo --apikey
+# Single autonomous task
+claude-yolo --auto "fix all lint errors and run the test suite"
+
+# Resume a previous session
+claude-yolo --auto "continue where you left off" --resume <session-id>
 ```
 
-## 6. Context for AI Assistants (The "Meta-Prompt")
+### Autonomous Loop
 
-To get an AI agent up to speed quickly, you can give it the following context at the start of a session.
+Run multiple tasks from a file, committing progress after each:
 
-> Hello Claude. To work effectively in this environment, please understand the following context:
->
-> **Your Environment:**
->
-> - You are running inside a temporary, secure Docker container. My settings, agents, and custom commands have been pre-loaded for you.
-> - The project files from my host machine are mounted at your current working directory, `/project`.
-> - You have full internet access.
-> - You are running as a non-root user that has the same permissions as I do on my host machine.
->
-> **Your Superpower: Docker Control**
->
-> - You have been granted secure access to my host machine's Docker daemon.
-> - This means you can run `docker` and `docker compose` commands to inspect and interact with any other containers I have running.
->
-> **The Correct Workflow for Interacting with Other Containers:**
->
-> 1.  **Identify the Target:** If you need to know service names, you can ask to read the `docker-compose.yml` file.
-> 2.  **Find the Full Container Name:** Service names are not container names. Always run `docker ps` to find the exact, running container name. A great command for this is: `docker ps --format "table {{.Names}}\t{{.Status}}"`
-> 3.  **Execute Commands:** Use `docker exec` with the **full container name** to run commands inside the target container. For example: `docker exec my-project-wpcli-1 wp plugin list`.
->
-> **Example Thought Process:**
->
-> - **My Request:** "Can you list the WordPress plugins?"
-> - **Your Plan:**
->   1.  "Okay, first I'll run `docker ps` to find the name of the `wpcli` or `wordpress` container."
->   2.  "The container is named `my-project-wpcli-1`. I will use that full name."
->   3.  "Now I will execute `docker exec my-project-wpcli-1 wp plugin list`."
->
-> This workflow will ensure your `docker` commands succeed.
+```bash
+# Create a task file
+cat > tasks.md << 'EOF'
+[ ] Set up project scaffolding with TypeScript
+[ ] Implement user authentication with JWT
+[ ] Add input validation to all API endpoints
+[ ] Write unit tests for auth module
+[ ] Add API documentation
+EOF
 
-## 7. Troubleshooting for Humans
+# Run the loop
+claude-yolo --loop tasks.md
+```
 
-- **"command not found: claude-yolo"**: Make sure `/usr/local/bin` is in your `PATH`, or that you moved the `claude-yolo` script to a directory that is.
-- **"Error: ANTHROPIC_API_KEY environment variable is not set..."**: You ran `claude-yolo --apikey` but did not `export` the variable on your host.
-- **Changes to `Dockerfile` or `entrypoint.sh` don't seem to work**: You must run `docker build -t claude-yolo-env .` again after any change to these two files.
+The loop reads tasks marked `[ ]`, runs Claude on each, marks them `[x]` when done, and auto-commits. See `claude-loop --help` for options.
+
+### Safe Mode
+
+Copy project files into the container instead of bind-mounting. Your originals are completely untouched - even if Claude deletes everything inside the container:
+
+```bash
+claude-yolo --safe
+```
+
+### Firewall Mode
+
+Enable network allowlisting inside the container. Only Anthropic API, npm, GitHub, and PyPI are reachable by default:
+
+```bash
+claude-yolo --firewall
+```
+
+### All Options
+
+```
+claude-yolo [options] [network-name]
+
+Authentication:
+  (default)              Browser-based login (copies ~/.claude settings)
+  --apikey               Use ANTHROPIC_API_KEY environment variable
+  --persist              Mount ~/.claude read-write (persists auth across sessions)
+
+Isolation:
+  --safe                 Copy project files into container (originals untouched)
+  --firewall             Enable network allowlisting inside container
+
+Autonomous Mode:
+  --auto <prompt>        Run Claude headless with the given prompt, then exit
+  --loop <task-file>     Run autonomous task loop with a PRD/todo file
+  --resume <session-id>  Continue a previous headless session
+
+Other:
+  network-name           Connect container to a Docker network
+  --version              Print version and exit
+  --help                 Print this help and exit
+
+Environment Variables:
+  ANTHROPIC_API_KEY          API key for --apikey mode
+  CLAUDE_CODE_OAUTH_TOKEN    OAuth token (auto-injected into container)
+```
+
+## How It Works
+
+### Architecture
+
+```
+Host Machine                         Docker Container
++---------------------------+        +---------------------------+
+|                           |        |                           |
+|  ~/.claude (settings) ----+--ro--->|  /home/node/.claude       |
+|                           |        |                           |
+|  $(pwd) (project) -------+------->|  /project (workdir)       |
+|                           |        |                           |
+|  /var/run/docker.sock ----+------->|  Docker CLI (DinD)        |
+|                           |        |                           |
+|  HOST_UID/GID env --------+------->|  node user (matched IDs)  |
+|                           |        |                           |
++---------------------------+        +---------------------------+
+```
+
+1. **`claude-yolo`** (launcher): Assembles the `docker run` command with correct volumes, env vars, and flags. Detects Docker or Podman automatically.
+
+2. **`Dockerfile`**: Node.js 20 image with Claude Code CLI, Docker CLI + Compose, bubblewrap (defense-in-depth), jq, socat, iptables, rsync, gosu.
+
+3. **`entrypoint.sh`**: Runs as root to match UID/GID, set up socket permissions, copy settings, apply firewall if enabled, then drops to unprivileged `node` user.
+
+4. **`init-firewall.sh`**: Optional iptables rules that allowlist Anthropic API, package registries, and GitHub. General web access is configurable.
+
+5. **`claude-loop`**: Ralph-inspired autonomous loop that reads a task file, runs `claude -p` per task, commits progress, and repeats.
+
+### Security Model
+
+- **Kernel-level isolation**: Docker provides hard process/filesystem/network boundaries
+- **Non-root execution**: Container user matches host UID/GID via gosu
+- **Settings protection**: Default mode copies settings (rsync), preventing container writes to host
+- **Safe mode**: Project files copied into container - originals physically cannot be modified
+- **Ephemeral by default**: `--rm` flag ensures containers are destroyed on exit
+- **Optional firewall**: iptables network restriction for additional paranoia
+- **Defense-in-depth**: bubblewrap available inside container for layered sandboxing
+
+### File Permissions
+
+Files created or modified inside the container have correct host ownership thanks to UID/GID matching. The entrypoint script reads `HOST_UID` and `HOST_GID` environment variables and adjusts the container's `node` user to match.
+
+## Context for AI Assistants (Meta-Prompt)
+
+When starting a session inside the sandbox, you can give Claude this context:
+
+> You are running inside a hardened Docker container (claude-yolo sandbox). Key facts:
+>
+> - Your working directory `/project` contains the mounted project files from the host
+> - You have full `--dangerously-skip-permissions` access - use it freely
+> - You have Docker CLI access to the host's Docker daemon (`docker ps`, `docker exec`, etc.)
+> - You are running as a non-root user with host-matched permissions
+> - Any files you create/modify will have correct ownership on the host
+> - You have unrestricted internet access (unless `--firewall` was used)
+> - This container is ephemeral - it will be destroyed when you exit
+>
+> **Docker workflow**: Always run `docker ps` to find container names before using `docker exec`.
+
+## Podman Support
+
+claude-yolo automatically detects Podman if Docker is not available. It checks for the Podman socket at `/run/podman/podman.sock` and uses the `podman` CLI as a drop-in replacement.
+
+## Troubleshooting
+
+- **"Docker image not found"**: Run `docker build -t claude-yolo-env .` in the project directory
+- **"ANTHROPIC_API_KEY not set"**: Export the variable or use browser login (drop `--apikey`)
+- **Permission errors on mounted files**: Ensure `HOST_UID`/`HOST_GID` match your host user (`id -u` / `id -g`)
+- **Changes to Dockerfile/entrypoint.sh not taking effect**: Rebuild with `docker build -t claude-yolo-env .`
+- **Firewall mode fails**: Container needs `NET_ADMIN` capability (added automatically with `--firewall`)
+- **Windows/WSL line endings**: Run `dos2unix claude-yolo entrypoint.sh` or `sed -i 's/\r$//' claude-yolo entrypoint.sh`
+
+## Development
+
+```bash
+# Rebuild after Dockerfile or entrypoint changes
+docker build -t claude-yolo-env .
+
+# Test launcher script changes (no rebuild needed)
+./claude-yolo --help
+./claude-yolo --version
+
+# Test inside the container
+claude-yolo              # interactive session
+docker ps                # verify Docker-in-Docker works
+```
