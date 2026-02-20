@@ -275,7 +275,7 @@ if [ -n "$AUTO_PROMPT" ]; then
 elif [ -n "$LOOP_FILE" ]; then
     # Autonomous loop mode - mount the loop script and task file
     LOOP_BASENAME=$(basename "$LOOP_FILE")
-    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/tmp/tasks/${LOOP_BASENAME}:ro")
+    DOCKER_ARGS+=("-v" "$(realpath "$LOOP_FILE"):/tmp/tasks/${LOOP_BASENAME}")
     LOOP_CMD=("claude-loop" "/tmp/tasks/${LOOP_BASENAME}")
     if [ -n "$RESUME_ID" ]; then
         LOOP_CMD+=("--continue" "$RESUME_ID")
