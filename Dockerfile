@@ -36,7 +36,13 @@ RUN apt-get update && apt-get install -y \
 # Install Claude Code CLI via native installer
 # Install to /opt/claude to avoid conflicts with ~/.claude config mount at runtime
 RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && ln -sf /root/.local/bin/claude /usr/local/bin/claude
+    && cp /root/.local/bin/claude /usr/local/bin/claude \
+    && mkdir -p /home/node/.local/bin \
+    && cp /root/.local/bin/claude /home/node/.local/bin/claude \
+    && chown -R node:node /home/node/.local \
+    && rm -rf /root/.local/bin/claude
+
+ENV PATH="/home/node/.local/bin:$PATH"
 
 # Copy scripts into the image
 COPY entrypoint.sh /usr/local/bin/
