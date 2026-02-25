@@ -8,9 +8,6 @@ LABEL maintainer="Ron Holt <ron@bokkagroup.com>"
 LABEL description="Hardened Docker sandbox for fully autonomous Claude Code sessions"
 LABEL version="2.0.0"
 
-# Pin Claude Code version for reproducibility (use 'latest' for bleeding edge)
-ARG CLAUDE_VERSION=latest
-
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     git \
@@ -36,8 +33,10 @@ RUN apt-get update && apt-get install -y \
     docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_VERSION}
+# Install Claude Code CLI via native installer
+# Install to /opt/claude to avoid conflicts with ~/.claude config mount at runtime
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && ln -sf /root/.local/bin/claude /usr/local/bin/claude
 
 # Copy scripts into the image
 COPY entrypoint.sh /usr/local/bin/

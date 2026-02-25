@@ -72,7 +72,7 @@ claude-yolo my-network                   # Connect to Docker network
    - `jq` for stream-json output parsing
    - `socat` for socket proxying
    - `iptables` for optional firewall
-   - Pinnable `@anthropic-ai/claude-code` version via `ARG CLAUDE_VERSION`
+   - Claude Code installed via native installer (`claude.ai/install.sh`), symlinked to `/usr/local/bin/claude`
 
 3. **`entrypoint.sh`**: Runs as root on container startup to:
    - Match container user to host UID/GID

@@ -193,7 +193,7 @@ Host Machine                         Docker Container
 
 1. **`claude-yolo`** (launcher): Assembles the `docker run` command with correct volumes, env vars, and flags. Detects Docker or Podman automatically. Launches Claude in YOLO mode (`--dangerously-skip-permissions`) by default.
 
-2. **`Dockerfile`**: Node.js 20 image with Claude Code CLI, Docker CLI + Compose, bubblewrap (defense-in-depth), jq, socat, iptables, rsync, gosu.
+2. **`Dockerfile`**: Node.js 20 image with Claude Code (native installer), Docker CLI + Compose, bubblewrap (defense-in-depth), jq, socat, iptables, rsync, gosu. Rebuild the image to get the latest Claude Code version.
 
 3. **`entrypoint.sh`**: Runs as root to match UID/GID, set up socket permissions, copy settings and `~/.claude.json` config, apply firewall if enabled, then drops to unprivileged `node` user.
 
