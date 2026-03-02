@@ -56,7 +56,7 @@ fi
 # If CLAUDE_CODE_OAUTH_TOKEN is set, write it to the credentials file.
 if [ -n "${CLAUDE_CODE_OAUTH_TOKEN}" ]; then
     mkdir -p /home/node/.claude
-    echo "{\"oauthToken\":\"${CLAUDE_CODE_OAUTH_TOKEN}\"}" > /home/node/.claude/.credentials.json
+    jq -n --arg token "${CLAUDE_CODE_OAUTH_TOKEN}" '{"oauthToken": $token}' > /home/node/.claude/.credentials.json
 fi
 
 # --- Final Ownership Fix ---
